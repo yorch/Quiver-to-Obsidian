@@ -136,12 +136,49 @@ class Quiver {
     this.bar?.tick();
   }
 
+  // Generate YAML frontmatter from note metadata
+  private generateFrontmatter(note: QvNote): string {
+    const frontmatter: string[] = ['---'];
+
+    // Add title
+    const title = note.meta.title.replace(/"/g, '\\"');
+    frontmatter.push(`title: "${title}"`);
+
+    // Add UUID
+    frontmatter.push(`uuid: ${note.meta.uuid}`);
+
+    // Add created date (convert Unix timestamp to ISO 8601)
+    const createdDate = new Date(note.meta.created_at * 1000).toISOString();
+    frontmatter.push(`created: ${createdDate}`);
+
+    // Add updated date (convert Unix timestamp to ISO 8601)
+    const updatedDate = new Date(note.meta.updated_at * 1000).toISOString();
+    frontmatter.push(`updated: ${updatedDate}`);
+
+    // Add tags if present
+    if (note.meta.tags && note.meta.tags.length > 0) {
+      frontmatter.push('tags:');
+      note.meta.tags.forEach(tag => {
+        frontmatter.push(`  - ${tag}`);
+      });
+    }
+
+    frontmatter.push('---');
+    return frontmatter.join('\n');
+  }
+
   // transform note content to markdown and convert TextCell to markdown
   private async writeNoteToMarkdown(note: QvNote, notePath: string): Promise<void> {
     let fd: fse.promises.FileHandle | undefined;
     try {
       await fse.createFile(notePath);
       fd = await fse.promises.open(notePath, 'w+');
+
+      // Write frontmatter first
+      const frontmatter = this.generateFrontmatter(note);
+      fd?.write(frontmatter);
+      fd?.write('\n\n');
+
       const noteContent = await readNoteContent(note.contentPath);
       noteContent.cells.forEach((cell, i) => {
         if (i !== 0) {
