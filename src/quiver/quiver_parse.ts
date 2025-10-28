@@ -4,7 +4,12 @@ import {
   QvLibrary, QvLibraryMeta, QvNote, QvNotebook, QvNotebookMeta, QvNoteContent, QvNoteMeta, QvNoteResourceFile,
 } from './type.js';
 
-// read note
+/**
+ * Check if a path is a valid Quiver note directory.
+ *
+ * @param notePath - Path to check
+ * @returns True if path is a .qvnote directory, false otherwise
+ */
 const isQvNote = async (notePath: string): Promise<boolean> => {
   try {
     const stat = await fse.stat(notePath);
@@ -17,6 +22,13 @@ const isQvNote = async (notePath: string): Promise<boolean> => {
   }
 };
 
+/**
+ * Read note metadata from meta.json file.
+ *
+ * @param metaPath - Path to the meta.json file
+ * @returns Parsed note metadata
+ * @throws Error if file doesn't exist or is invalid
+ */
 const readNoteMeta = async (metaPath:string): Promise<QvNoteMeta> => {
   try {
     const stat = await fse.stat(metaPath);
@@ -30,6 +42,13 @@ const readNoteMeta = async (metaPath:string): Promise<QvNoteMeta> => {
   }
 };
 
+/**
+ * Read note content from content.json file.
+ *
+ * @param contentPath - Path to the content.json file
+ * @returns Parsed note content with cells
+ * @throws Error if file doesn't exist or is invalid
+ */
 export const readNoteContent = async (contentPath: string): Promise<QvNoteContent> => {
   try {
     const stat = await fse.stat(contentPath);
@@ -43,6 +62,13 @@ export const readNoteContent = async (contentPath: string): Promise<QvNoteConten
   }
 };
 
+/**
+ * Read resource files from a note's resources directory.
+ *
+ * @param resourcesPath - Path to the resources directory
+ * @returns Array of resource files, or undefined if directory doesn't exist
+ * @throws Error if path exists but is not a directory
+ */
 const readNoteResources = async (resourcesPath: string): Promise<QvNoteResourceFile[] | undefined> => {
   if (!await fse.pathExists(resourcesPath)) {
     return undefined;
@@ -63,6 +89,13 @@ const readNoteResources = async (resourcesPath: string): Promise<QvNoteResourceF
   }
 };
 
+/**
+ * Read a complete Quiver note from a .qvnote directory.
+ *
+ * @param notePath - Path to the .qvnote directory
+ * @returns Complete note object with metadata and resource references
+ * @throws Error if path is not a valid note directory or required files are missing
+ */
 const readNote = async (notePath: string): Promise<QvNote> => {
   if (!isQvNote(notePath)) {
     throw new Error(`${notePath} is not a quiver note dir, please check and try again`);
@@ -85,7 +118,12 @@ const readNote = async (notePath: string): Promise<QvNote> => {
   return note;
 };
 
-// read notebook
+/**
+ * Check if a path is a valid Quiver notebook directory.
+ *
+ * @param notebookPath - Path to check
+ * @returns True if path is a .qvnotebook directory, false otherwise
+ */
 const isQvNoteBook = async (notebookPath: string): Promise<boolean> => {
   try {
     const stat = await fse.stat(notebookPath);
@@ -98,11 +136,24 @@ const isQvNoteBook = async (notebookPath: string): Promise<boolean> => {
   }
 };
 
+/**
+ * Read notebook metadata from meta.json file.
+ *
+ * @param metaPath - Path to the meta.json file
+ * @returns Parsed notebook metadata
+ */
 const readNotebookMeta = async (metaPath: string): Promise<QvNotebookMeta> => {
   const content = await fse.readFile(metaPath);
   return JSON.parse(content.toString()) as QvNotebookMeta;
 };
 
+/**
+ * Read a complete Quiver notebook from a .qvnotebook directory.
+ *
+ * @param notebookPath - Path to the .qvnotebook directory
+ * @returns Complete notebook object with metadata and notes
+ * @throws Error if path is not a valid notebook directory or meta.json is missing
+ */
 const readNoteBook = async (notebookPath: string): Promise<QvNotebook> => {
   if (!await isQvNoteBook(notebookPath)) {
     throw new Error(`${notebookPath} is not a quiver notebook dir, please check and try again`);
@@ -131,7 +182,12 @@ const readNoteBook = async (notebookPath: string): Promise<QvNotebook> => {
   };
 };
 
-// read library
+/**
+ * Check if a path is a valid Quiver library directory.
+ *
+ * @param libraryPath - Path to check
+ * @returns True if path is a .qvlibrary directory, false otherwise
+ */
 const isQvLibrary = async (libraryPath: string): Promise<boolean> => {
   try {
     const stat = fse.statSync(libraryPath);
@@ -144,11 +200,26 @@ const isQvLibrary = async (libraryPath: string): Promise<boolean> => {
   }
 };
 
+/**
+ * Read library metadata from meta.json file.
+ *
+ * @param metaPath - Path to the meta.json file
+ * @returns Parsed library metadata with hierarchy structure
+ */
 const readLibraryMeta = async (metaPath: string): Promise<QvLibraryMeta> => {
   const content = await fse.readFile(metaPath);
   return JSON.parse(content.toString()) as QvLibraryMeta;
 };
 
+/**
+ * Read a complete Quiver library from a .qvlibrary directory.
+ * Loads all notebooks and the hierarchy metadata.
+ * Automatically ignores system directories (.git, node_modules, .DS_Store).
+ *
+ * @param libraryPath - Path to the .qvlibrary directory
+ * @returns Complete library object with metadata and all notebooks
+ * @throws Error if path is not a valid library directory or meta.json is missing
+ */
 export const readLibrary = async (libraryPath: string): Promise<QvLibrary> => {
   if (!await isQvLibrary(libraryPath)) {
     throw new Error(`${libraryPath} is not a quiver library dir, please check and try again`);
@@ -191,6 +262,14 @@ export const readLibrary = async (libraryPath: string): Promise<QvLibrary> => {
   };
 };
 
+/**
+ * Recursively walk through the notebook hierarchy from library metadata.
+ * Performs a depth-first traversal, invoking the callback for each notebook.
+ *
+ * @param libraryMeta - The library metadata node to start from (can be root or any child)
+ * @param parents - Array of parent UUIDs (path from root to current node)
+ * @param callback - Function called for each notebook with its UUID and parent UUIDs
+ */
 export function walkThroughNotebookHierarchty(
   libraryMeta: QvLibraryMeta,
   parents: string[],

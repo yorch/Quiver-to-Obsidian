@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 
+/**
+ * Quiver-to-Obsidian CLI
+ * Command-line tool to convert Quiver libraries to Obsidian format.
+ */
+
 import { Command } from 'commander';
 import chalk from 'chalk';
 import Quiver from './quiver/index.js';
@@ -21,6 +26,10 @@ const { quiverPath } = options;
 const { outputPath } = options;
 const { extNames } = options;
 
+/**
+ * Main execution function for the CLI.
+ * Converts a Quiver library to Obsidian format based on command-line options.
+ */
 const execute = async (): Promise<void> => {
   try {
     const quiver = await Quiver.newQuiver(quiverPath, extNames);

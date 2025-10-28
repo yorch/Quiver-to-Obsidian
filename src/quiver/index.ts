@@ -11,20 +11,38 @@ import {
 import { readLibrary, walkThroughNotebookHierarchty, readNoteContent } from './quiver_parse.js';
 import { checkOutputDirPath, prepareDirectory, newDistinctNoteName } from './utils.js';
 
+/**
+ * Main class for converting Quiver libraries to Obsidian format.
+ * Handles reading Quiver notebooks, transforming content, and exporting to markdown.
+ */
 class Quiver {
+  /** The loaded Quiver library data */
   private library: QvLibrary;
 
+  /** Maps note UUIDs to their new file paths in the output */
   private newNotePathRecord: Record<string, string> = {};
 
+  /** Output path for the converted Obsidian vault */
   private outputQuiverPath: string = '';
 
+  /** Total number of notes to be processed */
   private noteCount = 0;
 
+  /** Optional list of file extensions to replace with .png */
   private needReplaceExtNames?: string[];
 
+  /** Progress bar for tracking export progress */
   private bar?: ProgressBar;
+
+  /** Spinner for showing loading state */
   private spinner?: Ora
 
+  /**
+   * Private constructor. Use newQuiver() static method to create instances.
+   *
+   * @param library - The loaded Quiver library data
+   * @param extNames - Optional list of file extensions to replace with .png
+   */
   private constructor(library: QvLibrary, extNames: string[] | undefined) {
     this.library = library;
     if (extNames && extNames.length > 0) {
@@ -32,12 +50,22 @@ class Quiver {
     }
   }
 
-  // Normalize notebook path by splitting on / and trimming each component
+  /**
+   * Normalize notebook path by splitting on / and trimming each component.
+   *
+   * @param pathName - The path to normalize
+   * @returns Normalized path with trimmed components
+   */
   private normalizePath(pathName: string): string {
     return pathName.split('/').map(part => part.trim()).join('/');
   }
 
-  // Sanitize note title to be used as filename (replace / with - and trim)
+  /**
+   * Sanitize note title to be used as filename (replace / with - and trim).
+   *
+   * @param title - The note title to sanitize
+   * @returns Sanitized filename-safe title
+   */
   private sanitizeNoteTitle(title: string): string {
     return title.trim().replace(/\//g, '-');
   }
@@ -70,6 +98,14 @@ class Quiver {
     return result === true;
   }
 
+  /**
+   * Factory method to create a new Quiver instance.
+   * Loads the library from the specified path.
+   *
+   * @param libraryPath - Path to the Quiver library (.qvlibrary directory)
+   * @param extNames - Optional list of file extensions to replace with .png
+   * @returns A new Quiver instance with the loaded library
+   */
   static async newQuiver(libraryPath: string, extNames?: string[]): Promise<Quiver> {
     const spinner = ora('Loading library...').start();
     const library = await readLibrary(libraryPath);
@@ -78,6 +114,13 @@ class Quiver {
     return quiver;
   }
 
+  /**
+   * Transform the Quiver library to Obsidian format.
+   * This is the main entry point for the conversion process.
+   *
+   * @param outputPath - Directory where the Obsidian vault will be created
+   * @returns Path to the created Obsidian vault
+   */
   async transformQvLibraryToObsidian(outputPath: string): Promise<string> {
     checkOutputDirPath(outputPath);
 
@@ -159,6 +202,12 @@ class Quiver {
     return this.outputQuiverPath;
   }
 
+  /**
+   * Walk through the notebook hierarchy and invoke callback for each notebook.
+   * Traverses the meta hierarchy depth-first, providing parent context.
+   *
+   * @param callback - Function called for each notebook with the notebook and its parents
+   */
   private walkThroughNotebookHierarchty(callback: (notebook: QvNotebook, parents: QvNotebook[]) => void): void {
     const notebooks: Record<string, QvNotebook> = {};
     this.library.notebooks.forEach((notebook) => {
@@ -177,6 +226,10 @@ class Quiver {
     });
   }
 
+  /**
+   * Write all notebooks and their notes to the output directory.
+   * Processes both hierarchical notebooks and standalone ones (Inbox, Trash).
+   */
   private async writeLibrary(): Promise<void> {
     const notebookInfoList: Array<{ notebook: QvNotebook, notebookPath: string }> = [];
 
@@ -223,6 +276,13 @@ class Quiver {
     }));
   }
 
+  /**
+   * Write a single notebook with all its notes to the output directory.
+   * Creates the notebook directory and processes all contained notes in parallel.
+   *
+   * @param notebook - The notebook to write
+   * @param newNotebookPath - The output path for this notebook
+   */
   private async writeNotebook(notebook: QvNotebook, newNotebookPath: string): Promise<void> {
     prepareDirectory(newNotebookPath);
     await Promise.all(notebook.notes.map(async (note) => {
@@ -231,6 +291,14 @@ class Quiver {
     }));
   }
 
+  /**
+   * Write a single note and its resources to the output directory.
+   * Converts the note to markdown and copies any associated resource files.
+   * Updates the progress bar after completion.
+   *
+   * @param note - The note to write
+   * @param newNotePath - The output path for this note
+   */
   private async writeNote(note: QvNote, newNotePath: string): Promise<void> {
     await this.writeNoteToMarkdown(note, newNotePath);
     if (note.resources) {
@@ -250,7 +318,13 @@ class Quiver {
     this.bar?.tick();
   }
 
-  // Generate YAML frontmatter from note metadata
+  /**
+   * Generate YAML frontmatter from note metadata.
+   * Includes title, UUID, creation/update dates, and tags.
+   *
+   * @param note - The note to generate frontmatter for
+   * @returns YAML frontmatter string with --- delimiters
+   */
   private generateFrontmatter(note: QvNote): string {
     const frontmatter: string[] = ['---'];
 
@@ -281,7 +355,14 @@ class Quiver {
     return frontmatter.join('\n');
   }
 
-  // transform note content to markdown and convert TextCell to markdown
+  /**
+   * Transform note content to markdown and write to file.
+   * Converts all cell types (markdown, text, code, latex, diagram) to markdown format.
+   * Also sets the file's creation and modification timestamps to match the note.
+   *
+   * @param note - The note to convert
+   * @param notePath - The output path for the markdown file
+   */
   private async writeNoteToMarkdown(note: QvNote, notePath: string): Promise<void> {
     let fd: fse.promises.FileHandle | undefined;
     try {
@@ -351,7 +432,14 @@ class Quiver {
     }
   }
 
-  // transform quiver resource and note link url
+  /**
+   * Transform Quiver resource and note link URLs to Obsidian format.
+   * Converts quiver-image-url and quiver-file-url to resources/ paths.
+   * Converts Quiver note links to Obsidian [[wikilinks]].
+   *
+   * @param data - The markdown content to transform
+   * @returns Transformed content with Obsidian-compatible links
+   */
   private transformQuiverResourceAndNoteLink(data: string): string {
     let transformData = data.replace(/quiver-image-url\//g, 'resources/');
     transformData = transformData.replace(/quiver-file-url\//g, 'resources/');
@@ -372,7 +460,16 @@ class Quiver {
     return transformData;
   }
 
-  // rename resource file names and links
+  /**
+   * Rename resource file names and links for compatibility.
+   * - Removes URL parameters from image links
+   * - Replaces unknown extensions with .png (if configured)
+   * - Adds .png extension to files without extensions
+   *
+   * @param data - The content or filename to process
+   * @param isForFile - True if processing a filename, false if processing content
+   * @returns Processed content or filename
+   */
   private replaceResourceName(data: string, isForFile: boolean): string {
     const resourceTag = isForFile ? '' : 'resources/';
     const prefix = isForFile ? '^' : '\\(';
