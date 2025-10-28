@@ -57,7 +57,12 @@ class Quiver {
     this.outputQuiverPath = path.join(outputPath, 'quiver');
 
     this.spinner = ora('Reading library...').start();
+
+    // Track which notebooks are in the meta hierarchy
+    const notebooksInMeta = new Set<string>();
     this.walkThroughNotebookHierarchty((notebook, parents) => {
+      notebooksInMeta.add(notebook.meta.uuid);
+
       const newPathList = [this.outputQuiverPath];
       parents.forEach((parentNotebook) => {
         newPathList.push(this.normalizePath(parentNotebook.meta.name));
@@ -79,6 +84,28 @@ class Quiver {
         this.newNotePathRecord[note.meta.uuid] = path.join(newPath, `${noteName}.md`);
       });
     });
+
+    // Process notebooks not in meta (e.g., Inbox, Trash)
+    this.library.notebooks.forEach((notebook) => {
+      if (!notebooksInMeta.has(notebook.meta.uuid)) {
+        const newPath = path.join(this.outputQuiverPath, this.normalizePath(notebook.meta.name));
+
+        // Prevent file name conflicts
+        const noteNames: string[] = [];
+        notebook.notes.forEach((note) => {
+          if (this.newNotePathRecord[note.meta.uuid]) {
+            throw new Error(`there has two notes with uuid(${note.meta.uuid}), please check and try again`);
+          }
+          let noteName = this.sanitizeNoteTitle(note.meta.title);
+          if (noteNames.indexOf(noteName) > -1) {
+            noteName = newDistinctNoteName(noteName, noteNames, 2);
+          }
+          noteNames.push(noteName);
+          this.newNotePathRecord[note.meta.uuid] = path.join(newPath, `${noteName}.md`);
+        });
+      }
+    });
+
     this.noteCount = Object.keys(this.newNotePathRecord).length;
     this.bar = new ProgressBar('Processing [:bar] :current/:total', { total: this.noteCount });
     await this.writeLibrary();
@@ -105,7 +132,12 @@ class Quiver {
 
   private async writeLibrary(): Promise<void> {
     const notebookInfoList: Array<{ notebook: QvNotebook, notebookPath: string }> = [];
+
+    // Track which notebooks are in the meta hierarchy
+    const notebooksInMeta = new Set<string>();
     this.walkThroughNotebookHierarchty((notebook, parents) => {
+      notebooksInMeta.add(notebook.meta.uuid);
+
       const newPathList = [this.outputQuiverPath];
       parents.forEach((parentNotebook) => {
         newPathList.push(this.normalizePath(parentNotebook.meta.name));
@@ -114,6 +146,15 @@ class Quiver {
       const newNotebookPath = path.join(...newPathList);
       notebookInfoList.push({ notebook, notebookPath: newNotebookPath });
     });
+
+    // Add notebooks not in meta (e.g., Inbox, Trash)
+    this.library.notebooks.forEach((notebook) => {
+      if (!notebooksInMeta.has(notebook.meta.uuid)) {
+        const newNotebookPath = path.join(this.outputQuiverPath, this.normalizePath(notebook.meta.name));
+        notebookInfoList.push({ notebook, notebookPath: newNotebookPath });
+      }
+    });
+
     await Promise.all(notebookInfoList.map(async (n) => {
       await this.writeNotebook(n.notebook, n.notebookPath);
     }));
