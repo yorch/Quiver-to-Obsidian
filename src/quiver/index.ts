@@ -210,6 +210,11 @@ class Quiver {
     // eslint-disable-next-line max-len
     transformData = transformData.replace(/\[.*?\]\((quiver-note-url|quiver:\/\/\/notes)\/([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})\)/g, (_, __, uuid) => {
       const linkNotePath = this.newNotePathRecord[uuid];
+      if (!linkNotePath) {
+        // Note doesn't exist in library, keep original link or use UUID
+        console.warn(`Warning: Note link references non-existent note with UUID ${uuid}`);
+        return ` [[${uuid}]]`;
+      }
       const linkNoteName = path.basename(linkNotePath);
       return ` [[${linkNoteName}]]`;
     });
