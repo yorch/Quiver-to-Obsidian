@@ -157,7 +157,16 @@ export const readLibrary = async (libraryPath: string): Promise<QvLibrary> => {
   const names = await fse.readdir(libraryPath);
   let meta: QvLibraryMeta | undefined;
   const notebooks: QvNotebook[] = [];
+
+  // Directories to ignore when reading library
+  const ignoredDirs = new Set(['.git', 'node_modules', '.DS_Store']);
+
   await Promise.all(names.map(async (name) => {
+    // Skip ignored directories
+    if (ignoredDirs.has(name)) {
+      return;
+    }
+
     const filePath = path.join(libraryPath, name);
     const stat = await fse.stat(filePath);
     if (stat.isFile() && name === 'meta.json') {
