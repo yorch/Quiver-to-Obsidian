@@ -217,11 +217,25 @@ class Quiver {
     const parents: string[] = [];
     this.library.meta.children?.forEach((meta) => {
       walkThroughNotebookHierarchty(meta, parents, (notebookName, parentNames) => {
+        // Validate notebook exists
+        const notebook = notebooks[notebookName];
+        if (!notebook) {
+          console.warn(`Warning: Notebook ${notebookName} referenced in meta.json but not found in filesystem. Skipping.`);
+          return;
+        }
+
+        // Validate all parents exist
         const parentNotebooks: QvNotebook[] = [];
-        parentNames.forEach((name) => {
-          parentNotebooks.push(notebooks[name]);
-        });
-        callback(notebooks[notebookName], parentNotebooks);
+        for (const name of parentNames) {
+          const parent = notebooks[name];
+          if (!parent) {
+            console.warn(`Warning: Parent notebook ${name} not found in filesystem. Skipping notebook ${notebookName}.`);
+            return;
+          }
+          parentNotebooks.push(parent);
+        }
+
+        callback(notebook, parentNotebooks);
       });
     });
   }
