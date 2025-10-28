@@ -32,6 +32,16 @@ class Quiver {
     }
   }
 
+  // Normalize notebook path by splitting on / and trimming each component
+  private normalizePath(pathName: string): string {
+    return pathName.split('/').map(part => part.trim()).join('/');
+  }
+
+  // Sanitize note title to be used as filename (replace / with - and trim)
+  private sanitizeNoteTitle(title: string): string {
+    return title.trim().replace(/\//g, '-');
+  }
+
   static async newQuiver(libraryPath: string, extNames?: string[]): Promise<Quiver> {
     const spinner = ora('Loading library...').start();
     const library = await readLibrary(libraryPath);
@@ -50,9 +60,9 @@ class Quiver {
     this.walkThroughNotebookHierarchty((notebook, parents) => {
       const newPathList = [this.outputQuiverPath];
       parents.forEach((parentNotebook) => {
-        newPathList.push(parentNotebook.meta.name);
+        newPathList.push(this.normalizePath(parentNotebook.meta.name));
       });
-      newPathList.push(notebook.meta.name);
+      newPathList.push(this.normalizePath(notebook.meta.name));
       const newPath = path.join(...newPathList);
 
       // Prevent file name conflicts
@@ -61,7 +71,7 @@ class Quiver {
         if (this.newNotePathRecord[note.meta.uuid]) {
           throw new Error(`there has two notes with uuid(${note.meta.uuid}), please check and try again`);
         }
-        let noteName = note.meta.title;
+        let noteName = this.sanitizeNoteTitle(note.meta.title);
         if (noteNames.indexOf(noteName) > -1) {
           noteName = newDistinctNoteName(noteName, noteNames, 2);
         }
@@ -98,9 +108,9 @@ class Quiver {
     this.walkThroughNotebookHierarchty((notebook, parents) => {
       const newPathList = [this.outputQuiverPath];
       parents.forEach((parentNotebook) => {
-        newPathList.push(parentNotebook.meta.name);
+        newPathList.push(this.normalizePath(parentNotebook.meta.name));
       });
-      newPathList.push(notebook.meta.name);
+      newPathList.push(this.normalizePath(notebook.meta.name));
       const newNotebookPath = path.join(...newPathList);
       notebookInfoList.push({ notebook, notebookPath: newNotebookPath });
     });
