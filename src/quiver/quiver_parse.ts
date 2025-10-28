@@ -158,7 +158,11 @@ export const readLibrary = async (libraryPath: string): Promise<QvLibrary> => {
   let meta: QvLibraryMeta | undefined;
   const notebooks: QvNotebook[] = [];
 
-  // Directories to ignore when reading library
+  // Directories to ignore when reading library.
+  // These are system/development directories that should not be processed as notebooks.
+  // - .git: Git repository data
+  // - node_modules: npm dependencies
+  // - .DS_Store: macOS system file
   const ignoredDirs = new Set(['.git', 'node_modules', '.DS_Store']);
 
   await Promise.all(names.map(async (name) => {

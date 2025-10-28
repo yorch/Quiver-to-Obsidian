@@ -42,6 +42,34 @@ class Quiver {
     return title.trim().replace(/\//g, '-');
   }
 
+  /**
+   * Check if a notebook UUID has children in the meta hierarchy.
+   * This is used to determine if a notebook without notes should still be exported
+   * as a parent directory to preserve the hierarchy structure.
+   *
+   * @param uuid - The UUID of the notebook to check
+   * @returns true if the notebook has children, false otherwise
+   */
+  private notebookHasChildren(uuid: string): boolean {
+    const findInMeta = (meta: any): boolean | null => {
+      if (meta.uuid === uuid) {
+        return meta.children && meta.children.length > 0;
+      }
+      if (meta.children && meta.children.length > 0) {
+        for (const child of meta.children) {
+          const result = findInMeta(child);
+          if (result !== null) {
+            return result;
+          }
+        }
+      }
+      return null;
+    };
+
+    const result = findInMeta(this.library.meta);
+    return result === true;
+  }
+
   static async newQuiver(libraryPath: string, extNames?: string[]): Promise<Quiver> {
     const spinner = ora('Loading library...').start();
     const library = await readLibrary(libraryPath);
@@ -63,6 +91,16 @@ class Quiver {
     this.walkThroughNotebookHierarchty((notebook, parents) => {
       notebooksInMeta.add(notebook.meta.uuid);
 
+      // Skip truly empty notebooks (no notes and no children).
+      // Notebooks with children but no notes are kept to preserve the hierarchy structure.
+      // For example, a "Projects" notebook with no notes but containing "Work" and "Personal"
+      // child notebooks will be exported as a parent directory.
+      const hasNotes = notebook.notes && notebook.notes.length > 0;
+      const hasChildren = this.notebookHasChildren(notebook.meta.uuid);
+      if (!hasNotes && !hasChildren) {
+        return;
+      }
+
       const newPathList = [this.outputQuiverPath];
       parents.forEach((parentNotebook) => {
         newPathList.push(this.normalizePath(parentNotebook.meta.name));
@@ -70,9 +108,10 @@ class Quiver {
       newPathList.push(this.normalizePath(notebook.meta.name));
       const newPath = path.join(...newPathList);
 
-      // Prevent file name conflicts
+      // Prevent file name conflicts (only if notebook has notes)
       const noteNames: string[] = [];
-      notebook.notes.forEach((note) => {
+      if (hasNotes) {
+        notebook.notes.forEach((note) => {
         if (this.newNotePathRecord[note.meta.uuid]) {
           throw new Error(`there has two notes with uuid(${note.meta.uuid}), please check and try again`);
         }
@@ -82,12 +121,20 @@ class Quiver {
         }
         noteNames.push(noteName);
         this.newNotePathRecord[note.meta.uuid] = path.join(newPath, `${noteName}.md`);
-      });
+        });
+      }
     });
 
-    // Process notebooks not in meta (e.g., Inbox, Trash)
+    // Process notebooks not in meta (e.g., Inbox, Trash).
+    // These notebooks are not part of the hierarchy, so they can't have children.
+    // Only export them if they contain notes.
     this.library.notebooks.forEach((notebook) => {
       if (!notebooksInMeta.has(notebook.meta.uuid)) {
+        // Skip empty notebooks (no notes)
+        if (!notebook.notes || notebook.notes.length === 0) {
+          return;
+        }
+
         const newPath = path.join(this.outputQuiverPath, this.normalizePath(notebook.meta.name));
 
         // Prevent file name conflicts
@@ -138,18 +185,34 @@ class Quiver {
     this.walkThroughNotebookHierarchty((notebook, parents) => {
       notebooksInMeta.add(notebook.meta.uuid);
 
+      // Skip empty notebooks (no notes and no children)
+      const hasNotes = notebook.notes && notebook.notes.length > 0;
+      const hasChildren = this.notebookHasChildren(notebook.meta.uuid);
+      if (!hasNotes && !hasChildren) {
+        return;
+      }
+
       const newPathList = [this.outputQuiverPath];
       parents.forEach((parentNotebook) => {
         newPathList.push(this.normalizePath(parentNotebook.meta.name));
       });
       newPathList.push(this.normalizePath(notebook.meta.name));
       const newNotebookPath = path.join(...newPathList);
-      notebookInfoList.push({ notebook, notebookPath: newNotebookPath });
+
+      // Only add to list if it has notes (parent directories will be created automatically)
+      if (hasNotes) {
+        notebookInfoList.push({ notebook, notebookPath: newNotebookPath });
+      }
     });
 
     // Add notebooks not in meta (e.g., Inbox, Trash)
     this.library.notebooks.forEach((notebook) => {
       if (!notebooksInMeta.has(notebook.meta.uuid)) {
+        // Skip empty notebooks (no notes)
+        if (!notebook.notes || notebook.notes.length === 0) {
+          return;
+        }
+
         const newNotebookPath = path.join(this.outputQuiverPath, this.normalizePath(notebook.meta.name));
         notebookInfoList.push({ notebook, notebookPath: newNotebookPath });
       }
