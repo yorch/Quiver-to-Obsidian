@@ -397,7 +397,7 @@ class Quiver {
 
   /**
    * Generate YAML frontmatter from note metadata.
-   * Includes title, UUID, creation/update dates, and tags.
+   * Includes title, UUID, creation/update dates, source, and tags.
    *
    * @param note - The note to generate frontmatter for
    * @returns YAML frontmatter string with --- delimiters
@@ -411,6 +411,9 @@ class Quiver {
 
     // Add UUID
     frontmatter.push(`uuid: ${note.meta.uuid}`);
+
+    // Add source
+    frontmatter.push(`source: Quiver`);
 
     // Add created date (convert Unix timestamp to ISO 8601)
     const createdDate = new Date(note.meta.created_at * 1000).toISOString();
