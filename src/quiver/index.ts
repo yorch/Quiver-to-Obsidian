@@ -447,39 +447,40 @@ class Quiver {
     let fd: fse.promises.FileHandle | undefined;
     try {
       await fse.createFile(notePath);
-      fd = await fse.promises.open(notePath, 'w+');
+      fd = await fse.promises.open(notePath, 'w');
 
       // Write frontmatter first
       const frontmatter = this.generateFrontmatter(note);
-      fd?.write(frontmatter);
-      fd?.write('\n\n');
+      await fd.write(frontmatter);
+      await fd.write('\n\n');
 
       const noteContent = await readNoteContent(note.contentPath);
-      noteContent.cells.forEach((cell, i) => {
+      for (let i = 0; i < noteContent.cells.length; i++) {
+        const cell = noteContent.cells[i];
         if (i !== 0) {
-          fd?.write('\n\n');
+          await fd.write('\n\n');
         }
         const { data } = cell;
         switch (cell.type) {
           case CellType.MarkdownCell: {
             const transformData = this.transformQuiverResourceAndNoteLink(data, note);
-            fd?.write(transformData);
+            await fd.write(transformData);
             break;
           }
           case CellType.TextCell: {
             const turndownService = new TurndownService();
             const markdown = turndownService.turndown(data);
             const transformData = this.transformQuiverResourceAndNoteLink(markdown, note);
-            fd?.write(transformData);
+            await fd.write(transformData);
             break;
           }
           case CellType.CodeCell: {
             const language = cell.language ?? '';
-            fd?.write(`\`\`\`${language}\n${data}\n\`\`\``);
+            await fd.write(`\`\`\`${language}\n${data}\n\`\`\``);
             break;
           }
           case CellType.LatexCell: {
-            fd?.write(`\`\`\`latex\n${data}\n\`\`\``);
+            await fd.write(`\`\`\`latex\n${data}\n\`\`\``);
             break;
           }
           case CellType.DiagramCell: {
@@ -487,17 +488,19 @@ class Quiver {
             if (cell.diagramType === 'flow') {
               tool = 'Flowchart diagram, see http://flowchart.js.org';
             }
-            fd?.write(`\`\`\`javascript\n// ${tool}\n${data}\`\`\``);
+            await fd.write(`\`\`\`javascript\n// ${tool}\n${data}\`\`\``);
             break;
           }
           default:
             break;
         }
-      });
+      }
     } catch (error) {
       throw (error as Error);
     } finally {
-      if (fd) { fd.close(); }
+      if (fd) {
+        await fd.close();
+      }
     }
 
     try {
