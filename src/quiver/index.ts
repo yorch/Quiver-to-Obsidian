@@ -37,6 +37,9 @@ class Quiver {
   /** Spinner for showing loading state */
   private spinner?: Ora
 
+  /** Maps original resource filename to final filename (per note, for link updates) */
+  private currentNoteResourceMap: Map<string, string> = new Map();
+
   /**
    * Private constructor. Use newQuiver() static method to create instances.
    *
@@ -307,29 +310,82 @@ class Quiver {
 
   /**
    * Write a single note and its resources to the output directory.
-   * Converts the note to markdown and copies any associated resource files.
+   * Resources are stored in a _resources directory at the same level as the note.
+   * Builds a mapping of original → final resource filenames for link updates.
    * Updates the progress bar after completion.
    *
    * @param note - The note to write
    * @param newNotePath - The output path for this note
    */
   private async writeNote(note: QvNote, newNotePath: string): Promise<void> {
-    await this.writeNoteToMarkdown(note, newNotePath);
+    // Clear the resource map for this note
+    this.currentNoteResourceMap.clear();
+
+    // First pass: Copy resources to note-relative _resources directory
     if (note.resources) {
-      const resourceDirPath = path.join(this.outputQuiverPath, 'resources');
+      // Resources go in _resources directory next to the note
+      const noteDir = path.dirname(newNotePath);
+      const resourceDirPath = path.join(noteDir, '_resources');
       prepareDirectory(resourceDirPath);
-      await Promise.all(note.resources.files.map(async (file) => {
-        const fileName = this.replaceResourceName(file.name, true);
+
+      // Process resources sequentially to build mapping before writing markdown
+      for (const file of note.resources.files) {
         const srcPath = path.join(note.notePath, 'resources', file.name);
-        const dstPath = path.join(resourceDirPath, fileName);
-        await fse.copyFile(srcPath, dstPath);
-      }));
+        const finalFileName = await this.copyResource(srcPath, file.name, resourceDirPath);
+
+        // Store mapping: original name → final name
+        this.currentNoteResourceMap.set(file.name, finalFileName);
+      }
     }
+
+    // Second pass: Write markdown with corrected resource links
+    await this.writeNoteToMarkdown(note, newNotePath);
+
     if (this.spinner) {
       this.spinner.stop();
       this.spinner = undefined;
     }
     this.bar?.tick();
+  }
+
+  /**
+   * Copy a resource file to the specified directory.
+   * Applies name transformations (extension fixes, etc.) and handles name collisions
+   * by appending numeric suffixes if needed.
+   *
+   * @param srcPath - Source path of the resource file
+   * @param originalName - Original filename of the resource
+   * @param resourceDirPath - Destination directory for the resource
+   * @returns The final filename used in the resources directory
+   */
+  private async copyResource(srcPath: string, originalName: string, resourceDirPath: string): Promise<string> {
+    // Apply name transformations (remove URL params, fix extensions, etc.)
+    let fileName = this.replaceResourceName(originalName, true);
+    let finalPath = path.join(resourceDirPath, fileName);
+
+    // Handle name collision within this directory
+    let counter = 1;
+    while (await fse.pathExists(finalPath)) {
+      const ext = path.extname(fileName);
+      const base = path.basename(fileName, ext);
+      fileName = `${base}_${counter}${ext}`;
+      finalPath = path.join(resourceDirPath, fileName);
+      counter++;
+
+      if (counter > 100) {
+        throw new Error(`Too many resource name collisions for: ${originalName}`);
+      }
+    }
+
+    // Copy the file
+    await fse.copyFile(srcPath, finalPath);
+
+    // Log if there was a collision
+    if (counter > 1) {
+      console.warn(`Resource name collision: ${originalName} → ${fileName}`);
+    }
+
+    return fileName;
   }
 
   /**
@@ -448,18 +504,46 @@ class Quiver {
 
   /**
    * Transform Quiver resource and note link URLs to Obsidian format.
-   * Converts quiver-image-url and quiver-file-url to resources/ paths.
+   * Converts quiver-image-url and quiver-file-url to _resources/ paths (relative to note).
    * Converts Quiver note links to Obsidian [[wikilinks]].
    *
    * @param data - The markdown content to transform
    * @returns Transformed content with Obsidian-compatible links
    */
   private transformQuiverResourceAndNoteLink(data: string): string {
-    let transformData = data.replace(/quiver-image-url\//g, 'resources/');
-    transformData = transformData.replace(/quiver-file-url\//g, 'resources/');
+    // First, convert Quiver resource URLs to _resources/ format (note-relative)
+    let transformData = data.replace(/quiver-image-url\//g, '_resources/');
+    transformData = transformData.replace(/quiver-file-url\//g, '_resources/');
+
+    // Apply resource name transformations (remove URL params, fix extensions, etc.)
     transformData = this.replaceResourceName(transformData, false);
 
-    // replace note link in content to obsidian link
+    // Update resource links to use final filenames (after collision handling)
+    // Match: _resources/filename.ext or _resources/filename (with optional URL params)
+    transformData = transformData.replace(
+      /_resources\/([^)\s?#]+?)(\.[a-zA-Z0-9]+)?(\)|\\|\s|\?|#|$)/g,
+      (match, baseName, extension, suffix) => {
+        const originalFileName = baseName + (extension || '');
+
+        // Check if we have a mapping for this resource
+        if (this.currentNoteResourceMap.has(originalFileName)) {
+          const finalFileName = this.currentNoteResourceMap.get(originalFileName)!;
+          return `_resources/${finalFileName}${suffix}`;
+        }
+
+        // Also check with .png added (for files without extensions)
+        const withPng = originalFileName + '.png';
+        if (this.currentNoteResourceMap.has(withPng)) {
+          const finalFileName = this.currentNoteResourceMap.get(withPng)!;
+          return `_resources/${finalFileName}${suffix}`;
+        }
+
+        // No mapping found, keep original
+        return match;
+      }
+    );
+
+    // Replace note links to Obsidian [[wikilinks]]
     // eslint-disable-next-line max-len
     transformData = transformData.replace(/\[.*?\]\((quiver-note-url|quiver:\/\/\/notes)\/([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})\)/g, (_, __, uuid) => {
       const linkNotePath = this.newNotePathRecord[uuid];
@@ -485,11 +569,11 @@ class Quiver {
    * @returns Processed content or filename
    */
   private replaceResourceName(data: string, isForFile: boolean): string {
-    const resourceTag = isForFile ? '' : 'resources/';
+    const resourceTag = isForFile ? '' : '_resources/';
     const prefix = isForFile ? '^' : '\\(';
     const suffix = isForFile ? '$' : '\\)';
     // 1.remove url args from img file name, like:
-    // `![](resources/47D5523597D28227C87950448B4780A5.jpg =344x387)`
+    // `![](_resources/47D5523597D28227C87950448B4780A5.jpg =344x387)`
     // `9FFEF50881EA1326EA55C1BC43EC9314.png&w=2048&q=75`
     // `55F20500B6E0C67E3EA78ED6C149B4D9.svg?style=social&label=Follow%20on%20Twitter`
     // eslint-disable-next-line max-len
@@ -504,7 +588,7 @@ class Quiver {
       transformData = transformData.replace(renameAwebpReg, (_, group1) => (isForFile ? `${group1}.png` : `(${group1}.png)`));
     }
 
-    // add default ext (png) for none ext resource file like`(resources/BC8755B05A094564A25EA19E438B73B3)`
+    // add default ext (png) for none ext resource file like`(_resources/BC8755B05A094564A25EA19E438B73B3)`
     // eslint-disable-next-line max-len
     const addDefaultExtReg = new RegExp(`${prefix}(${resourceTag}[0-9A-Z]{32})${suffix}`, 'g');
     transformData = transformData.replace(addDefaultExtReg, (_, group1) => (isForFile ? `${group1}.png` : `(${group1}.png)`));
