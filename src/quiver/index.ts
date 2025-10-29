@@ -40,6 +40,9 @@ class Quiver {
   /** Maps original resource filename to final filename (per note, for link updates) */
   private currentNoteResourceMap: Map<string, string> = new Map();
 
+  /** Tracks broken note links found during export */
+  private brokenLinks: Array<{ sourceNoteTitle: string, sourceNoteId: string, targetNoteId: string }> = [];
+
   /**
    * Private constructor. Use newQuiver() static method to create instances.
    *
@@ -202,6 +205,10 @@ class Quiver {
     this.noteCount = Object.keys(this.newNotePathRecord).length;
     this.bar = new ProgressBar('Processing [:bar] :current/:total', { total: this.noteCount });
     await this.writeLibrary();
+
+    // Report any broken links found during export
+    this.reportBrokenLinks();
+
     return this.outputQuiverPath;
   }
 
@@ -452,14 +459,14 @@ class Quiver {
         const { data } = cell;
         switch (cell.type) {
           case CellType.MarkdownCell: {
-            const transformData = this.transformQuiverResourceAndNoteLink(data);
+            const transformData = this.transformQuiverResourceAndNoteLink(data, note);
             fd?.write(transformData);
             break;
           }
           case CellType.TextCell: {
             const turndownService = new TurndownService();
             const markdown = turndownService.turndown(data);
-            const transformData = this.transformQuiverResourceAndNoteLink(markdown);
+            const transformData = this.transformQuiverResourceAndNoteLink(markdown, note);
             fd?.write(transformData);
             break;
           }
@@ -506,11 +513,13 @@ class Quiver {
    * Transform Quiver resource and note link URLs to Obsidian format.
    * Converts quiver-image-url and quiver-file-url to _resources/ paths (relative to note).
    * Converts Quiver note links to Obsidian [[wikilinks]].
+   * Tracks broken links for reporting.
    *
    * @param data - The markdown content to transform
+   * @param note - The note being processed (for broken link tracking)
    * @returns Transformed content with Obsidian-compatible links
    */
-  private transformQuiverResourceAndNoteLink(data: string): string {
+  private transformQuiverResourceAndNoteLink(data: string, note: QvNote): string {
     // First, convert Quiver resource URLs to _resources/ format (note-relative)
     let transformData = data.replace(/quiver-image-url\//g, '_resources/');
     transformData = transformData.replace(/quiver-file-url\//g, '_resources/');
@@ -548,8 +557,13 @@ class Quiver {
     transformData = transformData.replace(/\[.*?\]\((quiver-note-url|quiver:\/\/\/notes)\/([0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12})\)/g, (_, __, uuid) => {
       const linkNotePath = this.newNotePathRecord[uuid];
       if (!linkNotePath) {
-        // Note doesn't exist in library, keep original link or use UUID
-        console.warn(`Warning: Note link references non-existent note with UUID ${uuid}`);
+        // Track broken link with source note context
+        this.brokenLinks.push({
+          sourceNoteTitle: note.meta.title,
+          sourceNoteId: note.meta.uuid,
+          targetNoteId: uuid
+        });
+        // Keep UUID as link for user reference
         return ` [[${uuid}]]`;
       }
       const linkNoteName = path.basename(linkNotePath);
@@ -594,6 +608,23 @@ class Quiver {
     transformData = transformData.replace(addDefaultExtReg, (_, group1) => (isForFile ? `${group1}.png` : `(${group1}.png)`));
 
     return transformData;
+  }
+
+  /**
+   * Report broken note links found during export.
+   * Prints a summary of all broken links with source and target information.
+   */
+  private reportBrokenLinks(): void {
+    if (this.brokenLinks.length === 0) {
+      return;
+    }
+
+    console.warn(`\n⚠️  Found ${this.brokenLinks.length} broken note link${this.brokenLinks.length > 1 ? 's' : ''}:`);
+    this.brokenLinks.forEach((link, index) => {
+      console.warn(`  ${index + 1}. In note "${link.sourceNoteTitle}" (${link.sourceNoteId})`);
+      console.warn(`     → Links to non-existent note: ${link.targetNoteId}`);
+    });
+    console.warn('\nThese links have been converted to [[UUID]] format for manual review.\n');
   }
 }
 
